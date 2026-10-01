@@ -102,3 +102,35 @@ def shift(assignments: Iterable[Assignment], item_key: str, delta: timedelta) ->
     if conflicts(out):
         raise ValueError("shift creates conflict")
     return out
+
+
+def job_from_certificate(
+    cert,
+    *,
+    lead: timedelta,
+    duration: timedelta,
+    zone: str,
+    grace: timedelta | None = None,
+    priority: int = 0,
+) -> CalibrationJob:
+    """Derive the calibration job that the certificate's expiry demands.
+
+    ``grace`` should come from CalibrationLedger.next_due's view so scheduling
+    matches the rules known at planning time. The job remembers the cert it
+    renews; the issued replacement cert sets calibrates_job to job.key,
+    closing the schedule -> certificate version loop.
+    """
+    if lead < timedelta() or duration <= timedelta():
+        raise ValueError("invalid lead or duration")
+    deadline = cert.interval.norm().valid_to
+    if grace is not None:
+        deadline = deadline + grace
+    return CalibrationJob(
+        key=f"cal-{cert.cert_id}-v{cert.version + 1}",
+        earliest=max(cert.interval.recorded_from, deadline - lead),
+        latest=deadline,
+        duration=duration,
+        zone=zone,
+        priority=priority,
+        setup_group=cert.device_id,
+    )
